@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "3035:3000"
+      - "3065:3000"
     restart: unless-stopped
     env_file:
       - .env

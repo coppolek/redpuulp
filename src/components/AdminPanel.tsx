@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, getDocs, doc, setDoc, deleteDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, getDocs, doc, setDoc, deleteDoc, updateDoc, onSnapshot, serverTimestamp, addDoc, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserDoc, Category, Banner } from '../types';
-import { Save, Trash2, Plus, Edit2, X } from 'lucide-react';
+import { Save, Trash2, Plus, Edit2, X, Loader2, Rss } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AdminPanel: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'users' | 'categories' | 'banners'>('categories');
+  const [activeTab, setActiveTab] = useState<'users' | 'categories' | 'banners' | 'rss'>('categories');
   const { userDoc } = useAuth();
   
   if (userDoc?.role !== 'admin') {
@@ -23,7 +23,7 @@ export const AdminPanel: React.FC = () => {
         <h1 className="text-3xl font-bold text-slate-900 mb-8">Admin Dashboard</h1>
         
         <div className="flex gap-4 border-b border-slate-200 mb-8">
-          {(['categories', 'banners', 'users'] as const).map((tab) => (
+          {(['categories', 'banners', 'users', 'rss'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -41,6 +41,7 @@ export const AdminPanel: React.FC = () => {
         {activeTab === 'categories' && <CategoryManager />}
         {activeTab === 'banners' && <BannerManager />}
         {activeTab === 'users' && <UserManager />}
+        {activeTab === 'rss' && <RSSManager />}
       </div>
     </div>
   );
@@ -255,6 +256,241 @@ const UserManager: React.FC = () => {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+};
+
+const RSSManager: React.FC = () => {
+  const [feedUrl, setFeedUrl] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [intervalMinutes, setIntervalMinutes] = useState(10);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [automations, setAutomations] = useState<RssAutomation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const qCats = query(collection(db, 'categories'));
+    const unCats = onSnapshot(qCats, (snapshot) => {
+      const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category));
+      setCategories(cats.sort((a, b) => a.order - b.order));
+    });
+
+    const qAuto = query(collection(db, 'rss_automations'));
+    const unAuto = onSnapshot(qAuto, (snapshot) => {
+      const autos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RssAutomation));
+      setAutomations(autos);
+    });
+
+    return () => { unCats(); unAuto(); };
+  }, []);
+
+  const handleAddAutomation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedUrl || !categoryId || !user) return;
+    
+    setLoading(true);
+    setError('');
+
+    try {
+      const res = await fetch('/api/parse-rss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedUrl }),
+      });
+
+      if (!res.ok) throw new Error('Failed to validate RSS feed URL');
+
+      await addDoc(collection(db, 'rss_automations'), {
+        feedUrl,
+        categoryId,
+        intervalMinutes: Number(intervalMinutes),
+        lastRunAt: null,
+        isActive: true,
+        createdAt: serverTimestamp()
+      });
+
+      setFeedUrl('');
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Error validating RSS feed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleAutomation = async (id: string, currentStatus: boolean) => {
+    await updateDoc(doc(db, 'rss_automations', id), { isActive: !currentStatus });
+  };
+
+  const deleteAutomation = async (id: string) => {
+    if (confirm('Are you sure you want to delete this automation?')) {
+      await deleteDoc(doc(db, 'rss_automations', id));
+    }
+  };
+
+  // Background Daemon to process active automations while Admin panel is open
+  useEffect(() => {
+    if (!user) return;
+
+    const processAutomations = async () => {
+      const now = Date.now();
+      for (const auto of automations) {
+        if (!auto.isActive) continue;
+        
+        const lastRun = auto.lastRunAt || 0;
+        const intervalMs = (auto.intervalMinutes || 10) * 60 * 1000;
+
+        if (now - lastRun >= intervalMs) {
+          console.log(`[Daemon] Running RSS automation for ${auto.feedUrl}`);
+          
+          try {
+            // Update lastRunAt immediately to prevent duplicate runs
+            await updateDoc(doc(db, 'rss_automations', auto.id), { lastRunAt: now });
+
+            const res = await fetch('/api/parse-rss', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ feedUrl: auto.feedUrl }),
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              
+              // Only import top 5 to avoid spam on every loop
+              for (const item of data.items.slice(0, 5)) {
+                if (!item.link) continue;
+
+                // Check if post already exists to prevent duplicates
+                const q = query(collection(db, 'posts'), where('url', '==', item.link));
+                const existing = await getDocs(q);
+                if (!existing.empty) continue;
+
+                await addDoc(collection(db, 'posts'), {
+                  url: item.link,
+                  title: item.title || item.link,
+                  description: item.contentSnippet || item.description || '',
+                  imageUrl: item.extractedImageUrl || '',
+                  domain: new URL(item.link).hostname,
+                  siteName: data.title || '',
+                  authorId: user.uid,
+                  categoryId: auto.categoryId,
+                  createdAt: serverTimestamp(),
+                  upvotes: 0,
+                  downvotes: 0,
+                  score: 0,
+                });
+              }
+            }
+          } catch (e) {
+            console.error(`[Daemon] Error processing automation ${auto.id}`, e);
+          }
+        }
+      }
+    };
+
+    const interval = setInterval(processAutomations, 60 * 1000); // Check every minute
+    return () => clearInterval(interval);
+  }, [automations, user]);
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-6">
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <Rss className="w-5 h-5 text-orange-500" /> RSS Automations
+        </h2>
+        <p className="text-sm text-slate-500 mt-1">
+          Automatically import articles from RSS feeds at regular intervals. 
+          <br/><span className="text-orange-500 font-bold text-xs bg-orange-50 px-2 py-1 rounded inline-block mt-2">Note: Auto-import runs in the background while this Admin Dashboard remains open.</span>
+        </p>
+      </div>
+
+      <form onSubmit={handleAddAutomation} className="space-y-4 max-w-xl mb-8 border-b border-slate-200 pb-8">
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">RSS Feed URL</label>
+          <input 
+            type="url" 
+            required
+            value={feedUrl}
+            onChange={e => setFeedUrl(e.target.value)}
+            placeholder="https://example.com/feed.xml"
+            className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">Target Category</label>
+            <select 
+              required
+              value={categoryId}
+              onChange={e => setCategoryId(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+            >
+              <option value="" disabled>Select a category...</option>
+              {categories.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">Interval (Minutes)</label>
+            <input 
+              type="number" 
+              required
+              min="1"
+              value={intervalMinutes}
+              onChange={e => setIntervalMinutes(Number(e.target.value))}
+              className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+        </div>
+
+        {error && <div className="text-sm text-red-500 font-medium">{error}</div>}
+        
+        <button 
+          type="submit" 
+          disabled={loading || !feedUrl || !categoryId}
+          className="w-full bg-orange-500 text-white font-bold py-2 rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 mt-4"
+        >
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add Automation'}
+        </button>
+      </form>
+
+      <div>
+        <h3 className="font-bold text-slate-900 mb-4">Active Automations</h3>
+        <ul className="space-y-3">
+          {automations.map(auto => {
+            const catName = categories.find(c => c.id === auto.categoryId)?.name || 'Unknown';
+            return (
+              <li key={auto.id} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-lg ${auto.isActive ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+                <div className="mb-3 sm:mb-0">
+                  <div className="font-bold text-slate-900 truncate max-w-xs">{auto.feedUrl}</div>
+                  <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                    <span className="font-bold bg-slate-100 px-2 py-0.5 rounded text-slate-600">{catName}</span>
+                    <span>•</span>
+                    <span>Every {auto.intervalMinutes}m</span>
+                    {auto.lastRunAt && (
+                      <>
+                        <span>•</span>
+                        <span>Last run: {new Date(auto.lastRunAt).toLocaleTimeString()}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => toggleAutomation(auto.id, auto.isActive)} className={`px-3 py-1 text-xs font-bold rounded ${auto.isActive ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}>
+                    {auto.isActive ? 'Pause' : 'Resume'}
+                  </button>
+                  <button onClick={() => deleteAutomation(auto.id)} className="text-slate-400 hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              </li>
+            );
+          })}
+          {automations.length === 0 && <p className="text-sm text-slate-500">No automations configured yet.</p>}
+        </ul>
       </div>
     </div>
   );

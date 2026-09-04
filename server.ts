@@ -3,6 +3,7 @@ import path from 'path';
 import * as cheerio from 'cheerio';
 import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
+import Parser from 'rss-parser';
 
 async function getOgTags(postId: string | undefined, host: string) {
   let title = "Newswire";
@@ -40,6 +41,57 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // API Route to parse RSS feeds
+  app.post('/api/parse-rss', async (req, res) => {
+    try {
+      const { feedUrl } = req.body;
+      if (!feedUrl) {
+        return res.status(400).json({ error: 'feedUrl is required' });
+      }
+      const parser = new Parser({
+        customFields: {
+          item: ['media:content', 'media:thumbnail', 'description', 'content:encoded', 'enclosure']
+        }
+      });
+      const feed = await parser.parseURL(feedUrl);
+      
+      const items = feed.items.map(item => {
+        let imageUrl = '';
+        
+        // 1. Check media:content
+        if (item['media:content'] && item['media:content'].$ && item['media:content'].$.url) {
+          imageUrl = item['media:content'].$.url;
+        } 
+        // 2. Check media:thumbnail
+        else if (item['media:thumbnail'] && item['media:thumbnail'].$ && item['media:thumbnail'].$.url) {
+          imageUrl = item['media:thumbnail'].$.url;
+        }
+        // 3. Check enclosure
+        else if (item.enclosure && item.enclosure.url && item.enclosure.type?.startsWith('image/')) {
+          imageUrl = item.enclosure.url;
+        }
+        // 4. Parse content:encoded or description for first <img>
+        else {
+          const content = item['content:encoded'] || item.description || '';
+          const imgMatch = content.match(/<img[^>]+src="([^">]+)"/i) || content.match(/<img[^>]+src='([^'>]+)'/i);
+          if (imgMatch && imgMatch[1]) {
+            imageUrl = imgMatch[1];
+          }
+        }
+
+        return {
+          ...item,
+          extractedImageUrl: imageUrl
+        };
+      });
+
+      res.json({ title: feed.title, items: items.slice(0, 30) });
+    } catch (e: any) {
+      console.error('Error parsing RSS:', e);
+      res.status(500).json({ error: 'Failed to parse RSS feed' });
+    }
+  });
 
   // API Route to fetch OpenGraph data from a URL
   app.post('/api/fetch-metadata', async (req, res) => {

@@ -13,6 +13,16 @@ export interface Category {
   order: number;
 }
 
+export interface RssAutomation {
+  id: string;
+  feedUrl: string;
+  categoryId: string;
+  intervalMinutes: number;
+  lastRunAt: number | null;
+  isActive: boolean;
+  createdAt: Timestamp;
+}
+
 export interface Banner {
   id: string;
   title: string;
@@ -32,6 +42,9 @@ export interface Post {
   domain: string;
   siteName: string;
   authorId: string;
+  categoryId?: string;
+  isArticle?: boolean;
+  content?: string;
   createdAt: Timestamp;
   upvotes: number;
   downvotes: number;

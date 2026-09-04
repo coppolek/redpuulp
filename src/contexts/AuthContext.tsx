@@ -26,13 +26,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [userDoc, setUserDoc] = useState<UserDoc | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   const signIn = async () => {
+    if (isSigningIn) return;
+    setIsSigningIn(true);
     try {
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Sign in error:", error);
+    } catch (error: any) {
+      if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
+        console.log('Sign in popup was closed or cancelled.');
+      } else {
+        console.error("Sign in error:", error);
+      }
+    } finally {
+      setIsSigningIn(false);
     }
   };
 

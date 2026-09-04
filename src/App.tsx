@@ -7,7 +7,8 @@ import AddPost from './components/AddPost';
 import PostCard from './components/PostCard';
 import CommentSection from './components/CommentSection';
 import { AdminPanel } from './components/AdminPanel';
-import { Flame, Clock, TrendingUp, Loader2, Settings } from 'lucide-react';
+import UserProfile from './components/UserProfile';
+import { Flame, Clock, TrendingUp, Loader2, Settings, Search } from 'lucide-react';
 
 function AppContent() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -16,10 +17,23 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'score' | 'createdAt'>('score');
   const [activePost, setActivePost] = useState<Post | null>(null);
-  const [currentView, setCurrentView] = useState<'feed' | 'admin'>('feed');
+  const [currentView, setCurrentView] = useState<'feed' | 'admin' | 'profile'>('feed');
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [viewedUserId, setViewedUserId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const { user, userDoc, signIn, logOut } = useAuth();
 
   useEffect(() => {
+    // Check initial URL parameters
+    const searchParams = new URLSearchParams(window.location.search);
+    const c = searchParams.get('c');
+    const u = searchParams.get('u');
+    if (c) setActiveCategory(c);
+    if (u) {
+      setViewedUserId(u);
+      setCurrentView('profile');
+    }
+
     // Listen to real-time posts
     const q = query(collection(db, 'posts'), orderBy(sortBy, 'desc'));
     const unsubscribePosts = onSnapshot(q, async (snapshot) => {
@@ -72,6 +86,36 @@ function AppContent() {
     };
   }, [sortBy]);
 
+  useEffect(() => {
+    // Helper function to update meta tags dynamically
+    const updateMetaTags = (post: Post | null) => {
+      const titleTag = document.getElementById('meta-title');
+      const descTag = document.getElementById('meta-description');
+      const ogTitleTag = document.getElementById('og-title');
+      const ogDescTag = document.getElementById('og-description');
+      const ogImageTag = document.getElementById('og-image');
+      const ogUrlTag = document.getElementById('og-url');
+
+      if (post) {
+        if (titleTag) titleTag.innerText = `${post.title} - Newswire`;
+        if (descTag) descTag.setAttribute('content', post.description || 'Check out this post on Newswire');
+        if (ogTitleTag) ogTitleTag.setAttribute('content', post.title);
+        if (ogDescTag) ogDescTag.setAttribute('content', post.description || 'Check out this post on Newswire');
+        if (ogImageTag) ogImageTag.setAttribute('content', post.imageUrl || '');
+        if (ogUrlTag) ogUrlTag.setAttribute('content', window.location.href);
+      } else {
+        if (titleTag) titleTag.innerText = 'Newswire';
+        if (descTag) descTag.setAttribute('content', 'A platform for sharing and discussing news links.');
+        if (ogTitleTag) ogTitleTag.setAttribute('content', 'Newswire');
+        if (ogDescTag) ogDescTag.setAttribute('content', 'A platform for sharing and discussing news links.');
+        if (ogImageTag) ogImageTag.setAttribute('content', '');
+        if (ogUrlTag) ogUrlTag.setAttribute('content', window.location.origin);
+      }
+    };
+
+    updateMetaTags(activePost);
+  }, [activePost]);
+
   const handleOpenComments = (p: Post) => {
     setActivePost(p);
     window.history.pushState({}, '', `?p=${p.id}`);
@@ -82,18 +126,42 @@ function AppContent() {
     window.history.pushState({}, '', '/');
   };
 
+  const handleViewProfile = (uid: string) => {
+    setViewedUserId(uid);
+    setCurrentView('profile');
+    window.history.pushState({}, '', `?u=${uid}`);
+  };
+
+  const filteredPosts = posts.filter(post => {
+    if (activeCategory && post.categoryId !== activeCategory) return false;
+    if (!searchQuery.trim()) return true;
+    const lowerQuery = searchQuery.toLowerCase();
+    return (
+      (post.title && post.title.toLowerCase().includes(lowerQuery)) ||
+      (post.description && post.description.toLowerCase().includes(lowerQuery))
+    );
+  });
+
+  const handleShareCategory = () => {
+    if (!activeCategory) return;
+    const url = new URL(window.location.href);
+    url.search = `?c=${activeCategory}`;
+    navigator.clipboard.writeText(url.toString());
+    alert('Category link copied to clipboard!');
+  };
+
   return (
     <div className="flex flex-col h-full w-full bg-slate-50 font-sans text-slate-900 overflow-hidden">
-      <nav className="h-16 shrink-0 flex items-center justify-between px-4 md:px-8 bg-white border-b border-slate-200 z-10">
-        <div className="flex items-center gap-8">
+      <nav className="h-16 shrink-0 flex items-center justify-between px-4 md:px-8 bg-white border-b border-slate-200 z-10 gap-4">
+        <div className="flex items-center gap-8 shrink-0">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setCurrentView('feed')}>
             <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
               <div className="w-4 h-4 border-2 border-white rounded-full"></div>
             </div>
-            <span className="font-bold text-xl tracking-tight hidden sm:block">NEWSWIRE</span>
+            <span className="font-bold text-xl tracking-tight hidden lg:block">NEWSWIRE</span>
           </div>
           {currentView === 'feed' && (
-            <div className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-500">
+            <div className="hidden lg:flex items-center gap-6 text-sm font-medium text-slate-500">
               <button onClick={() => setSortBy('createdAt')} className={sortBy === 'createdAt' ? 'text-orange-500' : 'hover:text-slate-800'}>Home</button>
               <button onClick={() => setSortBy('score')} className={sortBy === 'score' ? 'text-orange-500' : 'hover:text-slate-800'}>Popular</button>
               <button className="hover:text-slate-800">All</button>
@@ -102,12 +170,24 @@ function AppContent() {
         </div>
 
         {currentView === 'feed' && (
-          <div className="flex-1 max-w-xl mx-4 md:mx-12 flex items-center">
-            <AddPost onAdd={() => setSortBy('createdAt')} />
+          <div className="flex-1 max-w-2xl flex items-center gap-4">
+            <div className="relative flex-1 hidden md:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Search news..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-10 bg-slate-100 rounded-full pl-10 pr-4 text-sm border-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all outline-none text-slate-900 placeholder-slate-400"
+              />
+            </div>
+            <div className="flex-1 md:max-w-[400px]">
+              <AddPost onAdd={() => setSortBy('createdAt')} categories={categories} />
+            </div>
           </div>
         )}
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 shrink-0">
           {userDoc?.role === 'admin' && (
             <button 
               onClick={() => setCurrentView(currentView === 'feed' ? 'admin' : 'feed')}
@@ -119,12 +199,15 @@ function AppContent() {
           )}
 
           {user ? (
-            <div 
-              className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-200 border border-slate-300 text-xs font-bold text-slate-600 uppercase cursor-pointer hover:bg-slate-300 transition-colors"
-              onClick={logOut}
-              title="Sign Out"
-            >
-              {user.email?.[0] || user.uid.slice(0, 2)}
+            <div className="flex items-center gap-3">
+              <div 
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-200 border border-slate-300 text-xs font-bold text-slate-600 uppercase cursor-pointer hover:bg-slate-300 transition-colors"
+                onClick={() => setCurrentView(currentView === 'profile' ? 'feed' : 'profile')}
+                title="View Profile"
+              >
+                {user.email?.[0] || user.uid.slice(0, 2)}
+              </div>
+              <button onClick={logOut} className="text-xs text-slate-500 hover:text-slate-900 font-medium hidden sm:block">Sign out</button>
             </div>
           ) : (
             <button 
@@ -139,6 +222,8 @@ function AppContent() {
 
       {currentView === 'admin' ? (
         <AdminPanel />
+      ) : currentView === 'profile' ? (
+        <UserProfile onOpenComments={handleOpenComments} categories={categories} userId={viewedUserId || undefined} />
       ) : (
         <div className="flex flex-1 overflow-hidden relative">
           {/* Left Sidebar */}
@@ -146,9 +231,8 @@ function AppContent() {
             <div className="flex flex-col gap-3">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Feeds</span>
               <div className="flex flex-col gap-1">
-                <button onClick={() => setSortBy('score')} className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium text-sm w-full text-left transition-colors ${sortBy === 'score' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span>🔥</span> Popular</button>
-                <button className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium text-sm w-full text-left transition-colors text-slate-500 hover:bg-slate-50 hover:text-slate-900`}><span>📈</span> Trending</button>
-                <button onClick={() => setSortBy('createdAt')} className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium text-sm w-full text-left transition-colors ${sortBy === 'createdAt' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span>🆕</span> Newest</button>
+                <button onClick={() => { setSortBy('score'); setActiveCategory(null); }} className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium text-sm w-full text-left transition-colors ${sortBy === 'score' && !activeCategory ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span>🔥</span> Popular</button>
+                <button onClick={() => { setSortBy('createdAt'); setActiveCategory(null); }} className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium text-sm w-full text-left transition-colors ${sortBy === 'createdAt' && !activeCategory ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span>🆕</span> Newest</button>
               </div>
             </div>
             
@@ -156,7 +240,11 @@ function AppContent() {
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Communities</span>
               <div className="flex flex-col gap-2">
                 {categories.length > 0 ? categories.map(cat => (
-                  <div key={cat.id} className="flex items-center justify-between text-sm text-slate-600 px-3 py-1 hover:bg-slate-50 rounded cursor-pointer transition-colors">
+                  <div 
+                    key={cat.id} 
+                    onClick={() => setActiveCategory(cat.id)}
+                    className={`flex items-center justify-between text-sm px-3 py-1.5 rounded cursor-pointer transition-colors ${activeCategory === cat.id ? 'bg-orange-50 text-orange-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
                     <span>{cat.name}</span>
                   </div>
                 )) : (
@@ -169,7 +257,19 @@ function AppContent() {
           {/* Main Content */}
           <main className="flex-1 p-4 md:p-6 flex flex-col gap-4 overflow-y-auto bg-slate-50 relative">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-bold">Latest Imports</h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-bold">
+                  {activeCategory ? categories.find(c => c.id === activeCategory)?.name : 'Latest Imports'}
+                </h2>
+                {activeCategory && (
+                  <button 
+                    onClick={handleShareCategory}
+                    className="text-xs text-orange-500 font-bold hover:underline"
+                  >
+                    Share
+                  </button>
+                )}
+              </div>
               <div className="flex gap-2">
                 <button className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-semibold shadow-sm">Card</button>
                 <button className="px-3 py-1 bg-slate-200 border border-slate-200 rounded text-xs font-semibold text-slate-600">List</button>
@@ -180,17 +280,19 @@ function AppContent() {
               <div className="flex justify-center items-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
               </div>
-            ) : posts.length === 0 ? (
+            ) : filteredPosts.length === 0 ? (
               <div className="text-center py-12 text-slate-500 border border-dashed border-slate-300 rounded-xl">
-                No links have been imported yet.
+                {searchQuery.trim() ? "No links found matching your search." : activeCategory ? "No links in this category yet." : "No links have been imported yet."}
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4 pb-12">
-                {posts.map(post => (
+                {filteredPosts.map(post => (
                   <PostCard 
                     key={post.id} 
                     post={post} 
+                    categories={categories}
                     onCommentClick={(p) => handleOpenComments(p)} 
+                    onProfileClick={() => handleViewProfile(post.authorId)}
                   />
                 ))}
               </div>

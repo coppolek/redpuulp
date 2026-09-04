@@ -4,7 +4,8 @@ import { db } from '../lib/firebase';
 import { Post, Comment } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
-import { X, Send, Loader2 } from 'lucide-react';
+import { X, Send, Loader2, ExternalLink } from 'lucide-react';
+import Markdown from 'react-markdown';
 
 export default function CommentSection({ post, onClose }: { post: Post, onClose: () => void }) {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -66,17 +67,64 @@ export default function CommentSection({ post, onClose }: { post: Post, onClose:
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-slate-200">
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h2 className="text-lg font-bold text-slate-900 line-clamp-1">
-            Discussion: {post.title}
-          </h2>
-          <button onClick={onClose} className="p-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl h-full max-h-[95vh] flex flex-col border border-slate-200">
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-4 min-w-0">
+            <h2 className="text-lg font-bold text-slate-900 line-clamp-1">
+              Discussion
+            </h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors ml-4 shrink-0">
             <X className="w-5 h-5" />
           </button>
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-slate-50">
+
+        <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+          {/* Content Preview (Left on Desktop, Top on Mobile) */}
+          <div className="flex-1 border-b md:border-b-0 md:border-r border-slate-200 bg-white overflow-y-auto min-h-[300px] flex flex-col relative">
+            {post.imageUrl && (
+              <div className="w-full h-48 sm:h-72 bg-slate-100 shrink-0">
+                <img 
+                  src={post.imageUrl} 
+                  alt={post.title} 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            <div className="p-6 md:p-8 flex flex-col flex-1 max-w-3xl mx-auto w-full">
+              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 leading-tight mb-4">
+                {post.title}
+              </h1>
+              {post.isArticle && post.content ? (
+                <div className="prose prose-slate max-w-none text-slate-700 leading-relaxed">
+                  <Markdown>{post.content}</Markdown>
+                </div>
+              ) : post.description && (
+                <p className="text-base md:text-lg text-slate-600 mb-8 leading-relaxed">
+                  {post.description}
+                </p>
+              )}
+              {!post.isArticle && post.url && (
+                <div className="mt-8 flex flex-col items-center">
+                  <a 
+                    href={post.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 px-8 py-3.5 text-base font-bold text-white bg-orange-500 rounded-full hover:bg-orange-600 transition-colors shadow-sm w-full sm:w-auto"
+                  >
+                    Read full article <ExternalLink className="w-5 h-5" />
+                  </a>
+                  <p className="text-xs text-slate-400 mt-3 font-medium">
+                    Opens in a new tab
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Comments Section (Right on Desktop, Bottom on Mobile) */}
+          <div className="w-full md:w-80 lg:w-96 flex flex-col shrink-0 bg-slate-50">
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
           {loading ? (
             <div className="flex justify-center items-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
@@ -105,7 +153,7 @@ export default function CommentSection({ post, onClose }: { post: Post, onClose:
           )}
         </div>
         
-        <div className="p-4 border-t border-slate-200 bg-white rounded-b-xl">
+        <div className="p-4 border-t border-slate-200 bg-white">
           {user ? (
             <form onSubmit={handleSubmit} className="flex gap-2">
               <input
@@ -129,6 +177,8 @@ export default function CommentSection({ post, onClose }: { post: Post, onClose:
               Please sign in to participate in this discussion.
             </div>
           )}
+        </div>
+          </div>
         </div>
       </div>
     </div>

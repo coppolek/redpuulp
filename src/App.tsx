@@ -3,6 +3,8 @@ import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestor
 import { db } from './lib/firebase';
 import { Post, Category, Banner } from './types';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { Toaster, toast } from 'react-hot-toast';
+
 import AddPost from './components/AddPost';
 import PostCard from './components/PostCard';
 import CommentSection from './components/CommentSection';
@@ -19,6 +21,7 @@ function AppContent() {
   const [activePost, setActivePost] = useState<Post | null>(null);
   const [currentView, setCurrentView] = useState<'feed' | 'admin' | 'profile'>('feed');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [viewedUserId, setViewedUserId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const { user, userDoc, signIn, logOut } = useAuth();
@@ -147,7 +150,7 @@ function AppContent() {
     const url = new URL(window.location.href);
     url.search = `?c=${activeCategory}`;
     navigator.clipboard.writeText(url.toString());
-    alert('Category link copied to clipboard!');
+    toast.success('Category link copied to clipboard!');
   };
 
   return (
@@ -271,8 +274,14 @@ function AppContent() {
                 )}
               </div>
               <div className="flex gap-2">
-                <button className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-semibold shadow-sm">Card</button>
-                <button className="px-3 py-1 bg-slate-200 border border-slate-200 rounded text-xs font-semibold text-slate-600">List</button>
+                <button 
+                  onClick={() => setViewMode('card')}
+                  className={`px-3 py-1 border border-slate-200 rounded text-xs font-semibold ${viewMode === 'card' ? 'bg-white shadow-sm' : 'bg-slate-200 text-slate-600'}`}
+                >Card</button>
+                <button 
+                  onClick={() => setViewMode('list')}
+                  className={`px-3 py-1 border border-slate-200 rounded text-xs font-semibold ${viewMode === 'list' ? 'bg-white shadow-sm' : 'bg-slate-200 text-slate-600'}`}
+                >List</button>
               </div>
             </div>
 
@@ -291,6 +300,7 @@ function AppContent() {
                     key={post.id} 
                     post={post} 
                     categories={categories}
+                    viewMode={viewMode}
                     onCommentClick={(p) => handleOpenComments(p)} 
                     onProfileClick={() => handleViewProfile(post.authorId)}
                   />
@@ -364,6 +374,7 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster position="bottom-right" />
       <AppContent />
     </AuthProvider>
   );

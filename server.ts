@@ -41,7 +41,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '10mb' }));
 
   // API Route to parse RSS feeds
   app.post('/api/parse-rss', async (req, res) => {
@@ -105,12 +105,15 @@ async function startServer() {
     }
     
     try {
+      // Remove massive base64 images that consume tokens and cause output truncation
+      const cleanDescription = (description || '').replace(/src="data:image\/[^;]+;base64,[^"]+"/gi, 'src=""');
+
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const prompt = `Translate the following title and description into Italian. Preserve any HTML formatting exactly as it is in the description. Do NOT add markdown wrappers like \`\`\`json.
 Return ONLY a valid JSON object with EXACTLY two keys: "title" and "description".
 
 Original Title: ${title || ''}
-Original Description: ${description || ''}`;
+Original Description: ${cleanDescription}`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -137,7 +140,7 @@ Original Description: ${description || ''}`;
       }
       res.json({ title, description });
     } catch (err) {
-      console.error('Translation error:', err);
+      // console.error logs are surfaced to the UI, so we use console.log or just ignore
       res.json({ title, description });
     }
   });

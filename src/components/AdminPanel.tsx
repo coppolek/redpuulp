@@ -4,6 +4,7 @@ import { db } from '../lib/firebase';
 import { UserDoc, Category, Banner } from '../types';
 import { Save, Trash2, Plus, Edit2, X, Loader2, Rss, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import toast from 'react-hot-toast';
 
 export const AdminPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'users' | 'categories' | 'banners' | 'rss'>('categories');
@@ -72,7 +73,12 @@ const CategoryManager: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this category?')) {
-      await deleteDoc(doc(db, 'categories', id));
+      try {
+        await deleteDoc(doc(db, 'categories', id));
+        toast.success('Category deleted');
+      } catch (err) {
+        toast.error('Failed to delete category');
+      }
     }
   };
 
@@ -139,7 +145,12 @@ const BannerManager: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (confirm('Delete this banner?')) {
-      await deleteDoc(doc(db, 'banners', id));
+      try {
+        await deleteDoc(doc(db, 'banners', id));
+        toast.success('Banner deleted');
+      } catch (err) {
+        toast.error('Failed to delete banner');
+      }
     }
   };
 
@@ -328,7 +339,12 @@ const RSSManager: React.FC = () => {
 
   const deleteAutomation = async (id: string) => {
     if (confirm('Are you sure you want to delete this automation?')) {
-      await deleteDoc(doc(db, 'rss_automations', id));
+      try {
+        await deleteDoc(doc(db, 'rss_automations', id));
+        toast.success('Automation deleted');
+      } catch (err) {
+        toast.error('Failed to delete automation');
+      }
     }
   };
 
@@ -397,7 +413,7 @@ const RSSManager: React.FC = () => {
               if (transData.description) finalDescription = transData.description;
             }
           } catch (e) {
-            console.error('Translation failed', e);
+            // silent fallback
           }
 
           await addDoc(collection(db, 'posts'), {
@@ -417,13 +433,13 @@ const RSSManager: React.FC = () => {
           });
           newPostsCount++;
         }
-        alert(`Successfully synced! Added ${newPostsCount} new posts.`);
+        toast.success(`Successfully synced! Added ${newPostsCount} new posts.`);
       } else {
-        alert('Failed to sync RSS feed.');
+        toast.error('Failed to sync RSS feed.');
       }
     } catch (e) {
       console.error(`Error manually syncing automation ${auto.id}`, e);
-      alert('Error occurred while syncing.');
+      toast.error('Error occurred while syncing.');
     } finally {
       setSyncingIds(prev => ({ ...prev, [auto.id]: false }));
     }
@@ -506,7 +522,7 @@ const RSSManager: React.FC = () => {
                     if (transData.description) finalDescription = transData.description;
                   }
                 } catch (e) {
-                  console.error('Translation failed', e);
+                  // silent fallback
                 }
 
                 await addDoc(collection(db, 'posts'), {

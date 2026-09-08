@@ -6,8 +6,9 @@ import { ArrowBigUp, ArrowBigDown, ExternalLink, MessageSquare, PenSquare, Trash
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'motion/react';
+import toast from 'react-hot-toast';
 
-export default function PostCard({ post, onCommentClick, onProfileClick, categories = [] }: { post: Post, onCommentClick: (post: Post) => void, onProfileClick?: () => void, categories?: { id: string, name: string }[] }) {
+export default function PostCard({ post, onCommentClick, onProfileClick, categories = [], viewMode = 'card' }: { post: Post, onCommentClick: (post: Post) => void, onProfileClick?: () => void, categories?: { id: string, name: string }[], viewMode?: 'card' | 'list' }) {
   const { user, userDoc } = useAuth();
   const [userVote, setUserVote] = useState<1 | -1 | 0>(0);
   const [score, setScore] = useState(post.score);
@@ -111,7 +112,7 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
       }
     } else {
       navigator.clipboard.writeText(shareUrl);
-      alert('Link copied to clipboard!');
+      toast.success('Link copied to clipboard!');
     }
   };
 
@@ -121,9 +122,10 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
     if (window.confirm("Are you sure you want to delete this post?")) {
       try {
         await deleteDoc(doc(db, 'posts', post.id));
+        toast.success("Post deleted successfully");
       } catch (error) {
         console.error("Error deleting post:", error);
-        alert("Failed to delete the post.");
+        toast.error("Failed to delete the post.");
       }
     }
   };
@@ -141,10 +143,11 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
         imageUrl: editImageUrl,
         categoryId: editCategory
       });
+      toast.success("Changes saved successfully");
       setIsEditing(false);
     } catch (err) {
       console.error("Error saving article:", err);
-      alert("Failed to save changes.");
+      toast.error("Failed to save changes.");
     } finally {
       setIsSaving(false);
     }
@@ -157,8 +160,8 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
 
   return (
     <>
-      <div className="bg-white border border-slate-200 rounded-xl p-4 flex gap-4 hover:shadow-md transition-shadow">
-        <div className="flex flex-col items-center gap-1 w-12 bg-slate-50 rounded-lg py-2 shrink-0">
+      <div className={`bg-white border border-slate-200 rounded-xl p-4 flex gap-4 hover:shadow-md transition-shadow ${viewMode === 'list' ? 'items-center' : ''}`}>
+        <div className={`flex flex-col items-center gap-1 w-12 bg-slate-50 rounded-lg shrink-0 ${viewMode === 'list' ? 'py-1' : 'py-2'}`}>
           <motion.button 
             whileTap={{ scale: 0.7 }}
             animate={userVote === 1 ? { scale: [1, 1.4, 1] } : { scale: 1 }}
@@ -211,18 +214,18 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
           
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1 min-w-0">
-              <div onClick={() => onCommentClick(post)} className="block group mb-3 cursor-pointer">
-                <h3 className="text-lg font-bold text-slate-900 leading-snug mb-2 group-hover:text-orange-500 transition-colors">
+              <div onClick={() => onCommentClick(post)} className={`block group cursor-pointer ${viewMode === 'card' ? 'mb-3' : 'mb-2'}`}>
+                <h3 className={`font-bold text-slate-900 leading-snug group-hover:text-orange-500 transition-colors ${viewMode === 'card' ? 'text-lg mb-2' : 'text-base'}`}>
                   {post.title}
                 </h3>
-                {post.description && (
+                {viewMode === 'card' && post.description && (
                   <p className="text-sm text-slate-500 line-clamp-2">
                     {post.description}
                   </p>
                 )}
               </div>
               
-              <div className="flex flex-wrap gap-4 mt-4">
+              <div className={`flex flex-wrap gap-4 ${viewMode === 'card' ? 'mt-4' : 'mt-2'}`}>
                 <button 
                   onClick={() => onCommentClick(post)}
                   className="flex items-center gap-1 text-xs text-slate-400 font-bold hover:text-slate-600 transition-colors"
@@ -296,7 +299,7 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
               </div>
             </div>
             
-            {post.imageUrl && (
+            {viewMode === 'card' && post.imageUrl && (
               <div onClick={() => onCommentClick(post)} className="shrink-0 cursor-pointer">
                 <div className="w-full sm:w-32 h-24 bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
                   <img 

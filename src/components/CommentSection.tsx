@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Post, Comment } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
-import { X, Send, Loader2, ExternalLink } from 'lucide-react';
+import { X, Send, Loader2, ExternalLink, Trash2 } from 'lucide-react';
 import Markdown from 'react-markdown';
+import toast from 'react-hot-toast';
 
-export default function CommentSection({ post, onClose }: { post: Post, onClose: () => void }) {
+export default function CommentSection({ post, onClose, onProfileClick }: { post: Post, onClose: () => void, onProfileClick?: (userId: string) => void }) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [newComment, setNewComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { user } = useAuth();
+  const { user, userDoc } = useAuth();
+  const canDelete = user && (user.uid === post.authorId || userDoc?.role === 'admin');
 
   useEffect(() => {
     const fetchComments = async () => {
@@ -65,6 +67,19 @@ export default function CommentSection({ post, onClose }: { post: Post, onClose:
     }
   };
 
+  const handleDeletePost = async () => {
+    if (window.confirm("Are you sure you want to delete this post?")) {
+      try {
+        await deleteDoc(doc(db, 'posts', post.id));
+        toast.success("Post deleted successfully");
+        onClose();
+      } catch (error) {
+        console.error("Error deleting post:", error);
+        toast.error("Failed to delete the post.");
+      }
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl h-full max-h-[95vh] flex flex-col border border-slate-200">
@@ -74,9 +89,19 @@ export default function CommentSection({ post, onClose }: { post: Post, onClose:
               Discussion
             </h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors ml-4 shrink-0">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {canDelete && (
+              <button 
+                onClick={handleDeletePost}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm font-bold text-red-600 hover:bg-red-50 rounded-md transition-colors"
+              >
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            )}
+            <button onClick={onClose} className="p-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors shrink-0">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">

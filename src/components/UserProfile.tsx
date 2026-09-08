@@ -7,6 +7,7 @@ import PostCard from './PostCard';
 import { Loader2, Calendar, TrendingUp, FileText, Share2, Copy, Check } from 'lucide-react';
 import { format } from 'date-fns';
 import { Category } from '../types';
+import toast from 'react-hot-toast';
 
 export default function UserProfile({ onOpenComments, categories = [], userId }: { onOpenComments: (post: Post) => void, categories?: Category[], userId?: string }) {
   const { user: currentUser, userDoc: currentUserDoc } = useAuth();
@@ -86,6 +87,7 @@ export default function UserProfile({ onOpenComments, categories = [], userId }:
     const url = new URL(window.location.href);
     url.search = `?u=${profileUser.uid}`;
     navigator.clipboard.writeText(url.toString());
+    toast.success('Profile link copied to clipboard!');
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

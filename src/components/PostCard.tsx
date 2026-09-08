@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { doc, updateDoc, increment, collection, query, where, getDocs, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Post } from '../types';
-import { ArrowBigUp, ArrowBigDown, ExternalLink, MessageSquare, PenSquare, Trash2, X, Loader2 } from 'lucide-react';
+import { ArrowBigUp, ArrowBigDown, ExternalLink, MessageSquare, PenSquare, Trash2, X, Loader2, Facebook, Twitter, Linkedin, Share2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'motion/react';
@@ -150,6 +150,11 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
     }
   };
 
+  const shareUrl = `${window.location.origin}/?p=${post.id}`;
+  const twitterShareUrl = `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(post.title)}`;
+  const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+  const linkedinShareUrl = `https://www.linkedin.com/shareArticle?mini=true&url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(post.title)}&summary=${encodeURIComponent(post.description || '')}`;
+
   return (
     <>
       <div className="bg-white border border-slate-200 rounded-xl p-4 flex gap-4 hover:shadow-md transition-shadow">
@@ -222,14 +227,46 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
                   onClick={() => onCommentClick(post)}
                   className="flex items-center gap-1 text-xs text-slate-400 font-bold hover:text-slate-600 transition-colors"
                 >
-                  <span>💬</span> Discuss
+                  <MessageSquare className="w-3.5 h-3.5" /> Discuss
                 </button>
-                <button 
-                  onClick={handleShare}
-                  className="flex items-center gap-1 text-xs text-slate-400 font-bold hover:text-slate-600 transition-colors"
-                >
-                  <span>🚀</span> Share
-                </button>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={handleShare}
+                    title="Share via device"
+                    className="flex items-center gap-1 text-xs text-slate-400 font-bold hover:text-slate-600 transition-colors"
+                  >
+                    <Share2 className="w-3.5 h-3.5" /> Share
+                  </button>
+                  <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
+                    <a 
+                      href={twitterShareUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Share to X (Twitter)"
+                      className="text-slate-400 hover:text-slate-900 transition-colors"
+                    >
+                      <Twitter className="w-3.5 h-3.5" />
+                    </a>
+                    <a 
+                      href={facebookShareUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Share to Facebook"
+                      className="text-slate-400 hover:text-blue-600 transition-colors"
+                    >
+                      <Facebook className="w-3.5 h-3.5" />
+                    </a>
+                    <a 
+                      href={linkedinShareUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Share to LinkedIn"
+                      className="text-slate-400 hover:text-blue-700 transition-colors"
+                    >
+                      <Linkedin className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
                 {!post.isArticle && post.url && (
                   <a 
                     href={post.url}
@@ -237,7 +274,7 @@ export default function PostCard({ post, onCommentClick, onProfileClick, categor
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 text-xs text-slate-400 font-bold hover:text-slate-600 transition-colors"
                   >
-                    <span>🔗</span> Source
+                    <ExternalLink className="w-3.5 h-3.5" /> Source
                   </a>
                 )}
                 {canEdit && (

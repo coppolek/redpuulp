@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, getDocs, doc, setDoc, deleteDoc, updateDoc, onSnapshot, serverTimestamp, addDoc, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserDoc, Category, Banner } from '../types';
-import { Save, Trash2, Plus, Edit2, X, Loader2, Rss } from 'lucide-react';
+import { Save, Trash2, Plus, Edit2, X, Loader2, Rss, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AdminPanel: React.FC = () => {
@@ -269,6 +269,7 @@ const RSSManager: React.FC = () => {
   const [automations, setAutomations] = useState<RssAutomation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [syncingIds, setSyncingIds] = useState<Record<string, boolean>>({});
   const { user } = useAuth();
 
   useEffect(() => {
@@ -331,6 +332,103 @@ const RSSManager: React.FC = () => {
     }
   };
 
+  const handleSyncNow = async (auto: RssAutomation) => {
+    if (!user || syncingIds[auto.id]) return;
+    
+    setSyncingIds(prev => ({ ...prev, [auto.id]: true }));
+    try {
+      const now = Date.now();
+      await updateDoc(doc(db, 'rss_automations', auto.id), { lastRunAt: now });
+
+      const res = await fetch('/api/parse-rss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedUrl: auto.feedUrl }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        
+        let newPostsCount = 0;
+        for (const item of data.items.slice(0, 10)) {
+          if (!item.link) continue;
+
+          const q = query(collection(db, 'posts'), where('url', '==', item.link));
+          const existing = await getDocs(q);
+          if (!existing.empty) continue;
+          
+          let parsedDomain = 'RSS Feed';
+          try {
+            parsedDomain = new URL(item.link).hostname.replace('www.', '');
+          } catch (e) {
+            // Ignore if invalid URL
+          }
+
+          let finalImageUrl = item.extractedImageUrl || '';
+          if (!finalImageUrl) {
+            try {
+              const metaRes = await fetch('/api/fetch-metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: item.link })
+              });
+              if (metaRes.ok) {
+                const meta = await metaRes.json();
+                finalImageUrl = meta.imageUrl || '';
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+
+          let finalTitle = item.title || item.link;
+          let finalDescription = item.contentSnippet || item.description || '';
+
+          // Attempt translation
+          try {
+            const transRes = await fetch('/api/translate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: finalTitle, description: finalDescription })
+            });
+            if (transRes.ok) {
+              const transData = await transRes.json();
+              if (transData.title) finalTitle = transData.title;
+              if (transData.description) finalDescription = transData.description;
+            }
+          } catch (e) {
+            console.error('Translation failed', e);
+          }
+
+          await addDoc(collection(db, 'posts'), {
+            url: item.link,
+            title: finalTitle,
+            description: finalDescription,
+            imageUrl: finalImageUrl,
+            domain: parsedDomain,
+            siteName: data.title || '',
+            authorId: user.uid,
+            categoryId: auto.categoryId,
+            isArticle: false,
+            createdAt: serverTimestamp(),
+            upvotes: 0,
+            downvotes: 0,
+            score: 0,
+          });
+          newPostsCount++;
+        }
+        alert(`Successfully synced! Added ${newPostsCount} new posts.`);
+      } else {
+        alert('Failed to sync RSS feed.');
+      }
+    } catch (e) {
+      console.error(`Error manually syncing automation ${auto.id}`, e);
+      alert('Error occurred while syncing.');
+    } finally {
+      setSyncingIds(prev => ({ ...prev, [auto.id]: false }));
+    }
+  };
+
   // Background Daemon to process active automations while Admin panel is open
   useEffect(() => {
     if (!user) return;
@@ -367,16 +465,60 @@ const RSSManager: React.FC = () => {
                 const q = query(collection(db, 'posts'), where('url', '==', item.link));
                 const existing = await getDocs(q);
                 if (!existing.empty) continue;
+                
+                let parsedDomain = 'RSS Feed';
+                try {
+                  parsedDomain = new URL(item.link).hostname.replace('www.', '');
+                } catch (e) {
+                  // Ignore if invalid URL
+                }
+
+                let finalImageUrl = item.extractedImageUrl || '';
+                if (!finalImageUrl) {
+                  try {
+                    const metaRes = await fetch('/api/fetch-metadata', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ url: item.link })
+                    });
+                    if (metaRes.ok) {
+                      const meta = await metaRes.json();
+                      finalImageUrl = meta.imageUrl || '';
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+
+                let finalTitle = item.title || item.link;
+                let finalDescription = item.contentSnippet || item.description || '';
+
+                // Attempt translation
+                try {
+                  const transRes = await fetch('/api/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: finalTitle, description: finalDescription })
+                  });
+                  if (transRes.ok) {
+                    const transData = await transRes.json();
+                    if (transData.title) finalTitle = transData.title;
+                    if (transData.description) finalDescription = transData.description;
+                  }
+                } catch (e) {
+                  console.error('Translation failed', e);
+                }
 
                 await addDoc(collection(db, 'posts'), {
                   url: item.link,
-                  title: item.title || item.link,
-                  description: item.contentSnippet || item.description || '',
-                  imageUrl: item.extractedImageUrl || '',
-                  domain: new URL(item.link).hostname,
+                  title: finalTitle,
+                  description: finalDescription,
+                  imageUrl: finalImageUrl,
+                  domain: parsedDomain,
                   siteName: data.title || '',
                   authorId: user.uid,
                   categoryId: auto.categoryId,
+                  isArticle: false,
                   createdAt: serverTimestamp(),
                   upvotes: 0,
                   downvotes: 0,
@@ -481,6 +623,14 @@ const RSSManager: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <button 
+                    onClick={() => handleSyncNow(auto)}
+                    disabled={syncingIds[auto.id]}
+                    title="Sync Now"
+                    className="p-1 text-slate-400 hover:text-orange-500 disabled:opacity-50 transition-colors"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${syncingIds[auto.id] ? 'animate-spin' : ''}`} />
+                  </button>
                   <button onClick={() => toggleAutomation(auto.id, auto.isActive)} className={`px-3 py-1 text-xs font-bold rounded ${auto.isActive ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}>
                     {auto.isActive ? 'Pause' : 'Resume'}
                   </button>

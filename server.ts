@@ -4,6 +4,7 @@ import * as cheerio from 'cheerio';
 import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import Parser from 'rss-parser';
+import { GoogleGenAI, Type } from '@google/genai';
 
 async function getOgTags(postId: string | undefined, host: string) {
   let title = "Newswire";
@@ -71,9 +72,9 @@ async function startServer() {
         else if (item.enclosure && item.enclosure.url && item.enclosure.type?.startsWith('image/')) {
           imageUrl = item.enclosure.url;
         }
-        // 4. Parse content:encoded or description for first <img>
+        // 4. Parse content:encoded, content, or description for first <img>
         else {
-          const content = item['content:encoded'] || item.description || '';
+          const content = item['content:encoded'] || item.content || item.description || '';
           const imgMatch = content.match(/<img[^>]+src="([^">]+)"/i) || content.match(/<img[^>]+src='([^'>]+)'/i);
           if (imgMatch && imgMatch[1]) {
             imageUrl = imgMatch[1];
@@ -90,6 +91,54 @@ async function startServer() {
     } catch (e: any) {
       console.error('Error parsing RSS:', e);
       res.status(500).json({ error: 'Failed to parse RSS feed' });
+    }
+  });
+
+  app.post('/api/translate', async (req, res) => {
+    const { title, description } = req.body;
+    if (!title && !description) {
+      return res.json({ title: '', description: '' });
+    }
+    
+    if (!process.env.GEMINI_API_KEY) {
+      return res.json({ title, description }); // fallback if no key
+    }
+    
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const prompt = `Translate the following title and description into Italian. Preserve any HTML formatting exactly as it is in the description. Do NOT add markdown wrappers like \`\`\`json.
+Return ONLY a valid JSON object with EXACTLY two keys: "title" and "description".
+
+Original Title: ${title || ''}
+Original Description: ${description || ''}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              description: { type: Type.STRING }
+            }
+          }
+        }
+      });
+
+      const text = response.text;
+      if (text) {
+        const parsed = JSON.parse(text);
+        return res.json({ 
+          title: parsed.title || title, 
+          description: parsed.description || description 
+        });
+      }
+      res.json({ title, description });
+    } catch (err) {
+      console.error('Translation error:', err);
+      res.json({ title, description });
     }
   });
 
